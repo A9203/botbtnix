@@ -1,4 +1,4 @@
-﻿import requests
+import requests
 import pandas as pd
 import talib
 import time
@@ -11,10 +11,8 @@ from streamlit_option_menu import option_menu
 import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
-from datetime import datetime, timedelta
-import plotly.express as px
+from datetime import datetime
 import plotly.graph_objects as go
-
 
 # ========================
 # CONFIGURACIÓN DEL BOT
@@ -31,11 +29,9 @@ TRAILING_ALT = 0.006      # 0.6%
 MAX_TRADES = 2
 BASE_URL = 'https://fapi.bitunix.com'
 
-
 # Variables globales para credenciales
 api_key = None
 secret = None
-
 
 # ========================
 # FUNCIONES API BITUNIX
@@ -48,7 +44,6 @@ def public_request(method, path, params=None):
     response = requests.request(method, url)
     return response.json()
 
-
 def private_request(method, path, params=None, data=None):
     query_str = ''
     if method == 'GET' and params:
@@ -60,7 +55,6 @@ def private_request(method, path, params=None, data=None):
     digest = hashlib.sha256(digest_input.encode()).hexdigest()
     sign_input = digest + secret
     sign = hashlib.sha256(sign_input.encode()).hexdigest()
-
 
     headers = {
         'api-key': api_key,
@@ -76,7 +70,6 @@ def private_request(method, path, params=None, data=None):
     response = requests.request(method, url, headers=headers, json=data)
     return response.json()
 
-
 # ========================
 # DATOS E INDICADORES
 # ========================
@@ -89,12 +82,11 @@ def fetch_data(symbol, limit=300):
     data = resp['data']
     df = pd.DataFrame(data)
     df['timestamp'] = pd.to_datetime(df['time'], unit='ms')
-    df = df.rename(columns={'open': 'open', 'high': 'high', 'low': 'low', 'close': 'close'})
     df['volume'] = df['quoteVol'].astype(float)
-    df = df[['timestamp', 'open', 'high', 'low', 'close', 'volume']]
+    df = df.rename(columns={'open': 'open', 'high': 'high', 'low': 'low', 'close': 'close'})
     df[['open','high','low','close']] = df[['open','high','low','close']].astype(float)
+    df = df[['timestamp', 'open', 'high', 'low', 'close', 'volume']]
     return df
-
 
 def calculate_indicators(df):
     for p in EMAS:
@@ -103,7 +95,6 @@ def calculate_indicators(df):
     df['volume_sma'] = talib.SMA(df['volume'], timeperiod=20)
     df['ema21_slope'] = df['ema_21'] - df['ema_21'].shift(1)
     return df
-
 
 def is_trending(df):
     r = df.iloc[-1]
@@ -114,7 +105,6 @@ def is_trending(df):
           r['close'] < r['ema_21'] and r['close'] < r['ema_50'] and r['ema21_slope'] < 0):
         return 'down'
     return None
-
 
 def has_momentum(df):
     last3 = df.iloc[-4:-1]
@@ -130,7 +120,6 @@ def has_momentum(df):
     if break_low and vol_ok and body_ok and atr_ok:
         return 'down'
     return None
-
 
 # ========================
 # BACKTEST HISTÓRICO
@@ -159,7 +148,6 @@ def fetch_historical_data(symbol, start_date, end_date):
     df = df[(df['timestamp'] >= start_date) & (df['timestamp'] <= end_date)]
     return df
 
-
 def backtest_strategy(df, initial_balance, symbol):
     df = calculate_indicators(df.copy())
     balance = initial_balance
@@ -171,13 +159,11 @@ def backtest_strategy(df, initial_balance, symbol):
     sl = 0
     tp1_hit = False
 
-
     for i in range(max(EMAS + [ATR_PERIOD, 50]), len(df)):
         sub_df = df.iloc[:i+1]
         row = df.iloc[i]
         trend = is_trending(sub_df)
         momentum = has_momentum(sub_df)
-
 
         if not in_position and trend and momentum and trend == momentum:
             atr = row['atr']
@@ -189,7 +175,6 @@ def backtest_strategy(df, initial_balance, symbol):
             in_position = True
             tp1_hit = False
 
-
         if in_position:
             price = row['close']
             if (side == 'BUY' and price <= sl) or (side == 'SELL' and price >= sl):
@@ -198,7 +183,6 @@ def backtest_strategy(df, initial_balance, symbol):
                 trades.append({'time': row['timestamp'], 'side': side, 'entry': entry, 'exit': price, 'pl': pl, 'reason': 'SL'})
                 in_position = False
                 continue
-
 
             tp1 = entry + ATR_MULTIPLIER * atr if side == 'BUY' else entry - ATR_MULTIPLIER * atr
             if not tp1_hit and ((side == 'BUY' and price >= tp1) or (side == 'SELL' and price <= tp1)):
@@ -209,13 +193,11 @@ def backtest_strategy(df, initial_balance, symbol):
                 tp1_hit = True
                 sl = entry
 
-
             if tp1_hit:
                 trailing = TRAILING_BTC_ETH if 'BTC' in symbol or 'ETH' in symbol else TRAILING_ALT
                 new_sl = price * (1 - trailing) if side == 'BUY' else price * (1 + trailing)
                 if (side == 'BUY' and new_sl > sl) or (side == 'SELL' and new_sl < sl):
                     sl = new_sl
-
 
             if (side == 'BUY' and row['ema_5'] < row['ema_21']) or (side == 'SELL' and row['ema_5'] > row['ema_21']):
                 pl = (price - entry) * qty if side == 'BUY' else (entry - price) * qty
@@ -223,9 +205,7 @@ def backtest_strategy(df, initial_balance, symbol):
                 trades.append({'time': row['timestamp'], 'side': side, 'entry': entry, 'exit': price, 'pl': pl, 'reason': 'EMA Cross'})
                 in_position = False
 
-
     return pd.DataFrame(trades), balance
-
 
 # ========================
 # EMAIL ALERTS
@@ -245,8 +225,7 @@ def send_email(subject, body, to_email, smtp_server, smtp_port, smtp_user, smtp_
         server.sendmail(smtp_user, to_email, msg.as_string())
         server.quit()
     except Exception as e:
-        st.warning(f"Email error: {e}")
-
+        st.warning(f"Error enviando email: {e}")
 
 # ========================
 # OPERACIONES EN VIVO
@@ -255,8 +234,7 @@ def get_current_price(symbol):
     resp = public_request('GET', '/api/v1/futures/market/tickers', {'symbols': symbol})
     if resp.get('code') == 0 and resp['data']:
         return float(resp['data'][0]['lastPrice'])
-    raise Exception("Price error")
-
+    raise Exception("Error obteniendo precio")
 
 def get_balance():
     resp = private_request('GET', '/api/v1/futures/account', {'marginCoin': 'USDT'})
@@ -264,13 +242,11 @@ def get_balance():
         return float(resp['data'][0]['available'])
     return 0.0
 
-
 def get_positions(symbol):
     resp = private_request('GET', '/api/v1/futures/position/get_pending_positions', {'symbol': symbol})
     if resp.get('code') == 0:
         return resp['data']
     return []
-
 
 def place_order(symbol, qty, side, order_type, trade_side, reduce_only=False, sl_price=None):
     data = {
@@ -289,11 +265,9 @@ def place_order(symbol, qty, side, order_type, trade_side, reduce_only=False, sl
     if resp.get('code') != 0:
         raise Exception(resp.get('msg'))
 
-
 def modify_sl(position_id, sl_price):
     data = {'positionId': position_id, 'slPrice': str(sl_price), 'slStopType': 'LAST_PRICE', 'slOrderType': 'MARKET'}
     private_request('POST', '/api/v1/futures/tpsl/position/modify_order', data=data)
-
 
 def close_position(symbol, pos, price, reason, log_container, email_params):
     side_close = 'SELL' if pos['side'] == 'BUY' else 'BUY'
@@ -301,15 +275,13 @@ def close_position(symbol, pos, price, reason, log_container, email_params):
     pl = (price - pos['entry']) * pos['qty'] if pos['side'] == 'BUY' else (pos['entry'] - price) * pos['qty']
     trade = {**pos, 'exit': price, 'pl': pl, 'reason': reason, 'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
     st.session_state.trades.append(trade)
-    log_container.write(f"[{trade['timestamp']}] CLOSED {symbol} {pos['side']} P/L: {pl:.2f} ({reason})")
-    send_email("Trade Closed", f"{symbol} {pos['side']} closed at {price}\nP/L: {pl:.2f}\nReason: {reason}", **email_params)
-
+    log_container.write(f"[{trade['timestamp']}] CERRADA {symbol} {pos['side']} P/L: {pl:.2f} ({reason})")
+    send_email("Operación Cerrada", f"{symbol} {pos['side']} cerrada a {price}\nP/L: {pl:.2f}\nMotivo: {reason}", **email_params)
 
 def bot_loop(symbol, leverage, log_c, status_c, bal_c, pos_c, email_params):
     global api_key, secret
     private_request('POST', '/api/v1/futures/account/change_leverage', data={'marginCoin': 'USDT', 'symbol': symbol, 'leverage': leverage})
     positions = {}
-
 
     while st.session_state.bot_running:
         try:
@@ -317,7 +289,6 @@ def bot_loop(symbol, leverage, log_c, status_c, bal_c, pos_c, email_params):
             df = calculate_indicators(df)
             trend = is_trending(df)
             momentum = has_momentum(df)
-
 
             api_pos = get_positions(symbol)
             if api_pos:
@@ -333,7 +304,6 @@ def bot_loop(symbol, leverage, log_c, status_c, bal_c, pos_c, email_params):
             else:
                 positions.pop(symbol, None)
 
-
             if trend and momentum and trend == momentum and len(positions) < MAX_TRADES and symbol not in positions:
                 price = get_current_price(symbol)
                 atr = df.iloc[-1]['atr']
@@ -343,23 +313,20 @@ def bot_loop(symbol, leverage, log_c, status_c, bal_c, pos_c, email_params):
                 sl = price - ATR_MULTIPLIER * atr if side == 'BUY' else price + ATR_MULTIPLIER * atr
                 qty = risk / abs(price - sl)
                 place_order(symbol, qty, side, 'MARKET', 'OPEN', sl_price=sl)
-                log_c.write(f"[{datetime.now().strftime('%H:%M:%S')}] OPENED {side} {symbol} @ {price}")
-                send_email("New Position", f"Opened {side} {symbol} at {price}\nSL: {sl}", **email_params)
+                log_c.write(f"[{datetime.now().strftime('%H:%M:%S')}] ABIERTA {side} {symbol} @ {price}")
+                send_email("Nueva Posición", f"Abrió {side} {symbol} a {price}\nSL: {sl}", **email_params)
                 time.sleep(5)
                 positions[symbol] = {'entry': price, 'sl': sl, 'side': side, 'qty': qty, 'tp1_hit': False}
-
 
             if symbol in positions:
                 pos = positions[symbol]
                 price = get_current_price(symbol)
                 atr = df.iloc[-1]['atr']
 
-
                 if (pos['side'] == 'BUY' and price <= pos['sl']) or (pos['side'] == 'SELL' and price >= pos['sl']):
                     close_position(symbol, pos, price, 'SL Hit', log_c, email_params)
                     del positions[symbol]
                     continue
-
 
                 tp1 = pos['entry'] + ATR_MULTIPLIER * atr if pos['side'] == 'BUY' else pos['entry'] - ATR_MULTIPLIER * atr
                 if not pos['tp1_hit'] and ((pos['side'] == 'BUY' and price >= tp1) or (pos['side'] == 'SELL' and price <= tp1)):
@@ -370,9 +337,8 @@ def bot_loop(symbol, leverage, log_c, status_c, bal_c, pos_c, email_params):
                     pos['tp1_hit'] = True
                     modify_sl(pos['position_id'], pos['entry'])
                     pos['sl'] = pos['entry']
-                    log_c.write(f"TP1 Hit - Partial close & SL to BE")
-                    send_email("TP1 Hit", f"Partial close {symbol} {pos['side']}", **email_params)
-
+                    log_c.write(f"TP1 alcanzado - Cierre parcial & SL a BE")
+                    send_email("TP1 Alcanzado", f"Cierre parcial {symbol} {pos['side']}", **email_params)
 
                 if pos['tp1_hit']:
                     trailing = TRAILING_BTC_ETH if 'BTC' in symbol or 'ETH' in symbol else TRAILING_ALT
@@ -381,30 +347,25 @@ def bot_loop(symbol, leverage, log_c, status_c, bal_c, pos_c, email_params):
                         modify_sl(pos['position_id'], new_sl)
                         pos['sl'] = new_sl
 
-
                 if (pos['side'] == 'BUY' and df.iloc[-1]['ema_5'] < df.iloc[-1]['ema_21']) or (pos['side'] == 'SELL' and df.iloc[-1]['ema_5'] > df.iloc[-1]['ema_21']):
-                    close_position(symbol, pos, price, 'EMA Cross', log_c, email_params)
+                    close_position(symbol, pos, price, 'Cruce EMA', log_c, email_params)
                     del positions[symbol]
 
-
-            # Dashboard update
-            status_c.metric("Status", "Running" if st.session_state.bot_running else "Stopped")
-            bal_c.metric("Available Balance", f"{get_balance():.2f} USDT")
-            pos_text = "\n".join([f"{s}: {p['side']} @ {p['entry']:.4f} (Qty: {p['qty']})" for s,p in positions.items()]) or "None"
-            pos_c.text("Open Positions\n" + pos_text)
-
+            # Actualización dashboard
+            status_c.metric("Estado", "Ejecutándose" if st.session_state.bot_running else "Detenido")
+            bal_c.metric("Saldo Disponible", f"{get_balance():.2f} USDT")
+            pos_text = "\n".join([f"{s}: {p['side']} @ {p['entry']:.4f} (Qty: {p['qty']})" for s,p in positions.items()]) or "Ninguna"
+            pos_c.text("Posiciones Abiertas\n" + pos_text)
 
             time.sleep(60)
         except Exception as e:
             log_c.error(f"Error: {e}")
             time.sleep(60)
 
-
 # ========================
 # INTERFAZ STREAMLIT
 # ========================
 st.set_page_config(page_title="Bitunix EMA Ribbon Bot", layout="wide", page_icon="🤖")
-
 
 st.markdown("""
 <style>
@@ -415,10 +376,16 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-
 st.title("🤖 Bitunix Futures EMA Ribbon Trading Bot")
-st.markdown("**Estrategia profesional con EMA 5-14-21-34-50-100 + Volumen + ATR(21)** – Timeframe 15m")
+st.markdown("**Estrategia profesional con EMA 5-14-21-34-50-100 + Volumen + ATR(21) – Timeframe 15m**")
 
+# Inicializar estado de sesión
+if 'bot_running' not in st.session_state:
+    st.session_state.bot_running = False
+if 'trades' not in st.session_state:
+    st.session_state.trades = []
+if 'initial_balance' not in st.session_state:
+    st.session_state.initial_balance = 10000.0
 
 with st.sidebar:
     st.header("Navegación")
@@ -430,19 +397,16 @@ with st.sidebar:
         default_index=0
     )
 
-
 if selected == "Dashboard":
     col1, col2, col3 = st.columns(3)
     status_c = col1.empty()
     bal_c = col2.empty()
     pos_c = col3.empty()
 
-
-    if st.session_state.get('bot_running', False):
+    if st.session_state.bot_running:
         st.success("Bot en ejecución")
     else:
         st.warning("Bot detenido")
-
 
 elif selected == "Configuración":
     st.header("Configuración del Bot")
@@ -451,12 +415,10 @@ elif selected == "Configuración":
         api_key = st.text_input("API Key", type="password")
         secret = st.text_input("API Secret", type="password")
 
-
     with st.expander("Parámetros de Trading"):
         symbol = st.selectbox("Par", ["BTCUSDT", "ETHUSDT", "SOLUSDT", "ADAUSDT"])
         leverage = st.slider("Apalancamiento", 1, 125, 10)
-        st.session_state.initial_balance = st.number_input("Balance inicial (para métricas)", value=10000.0)
-
+        st.session_state.initial_balance = st.number_input("Balance inicial (para métricas)", value=st.session_state.initial_balance)
 
     with st.expander("Alertas por Email"):
         to_email = st.text_input("Email destinatario")
@@ -465,25 +427,22 @@ elif selected == "Configuración":
         smtp_user = st.text_input("Usuario SMTP")
         smtp_pass = st.text_input("Contraseña SMTP", type="password")
 
-
     col1, col2 = st.columns(2)
-    if col1.button("Iniciar Bot", type="primary") and not st.session_state.get('bot_running', False):
+    if col1.button("Iniciar Bot", type="primary") and not st.session_state.bot_running:
         if api_key and secret:
             st.session_state.bot_running = True
             log_c = st.container()
             status_c, bal_c, pos_c = st.columns(3)
             email_params = {'to_email': to_email, 'smtp_server': smtp_server, 'smtp_port': smtp_port,
-                       'smtp_user': smtp_user, 'smtp_pass': smtp_pass}
+                            'smtp_user': smtp_user, 'smtp_pass': smtp_pass}
             threading.Thread(target=bot_loop, args=(symbol, leverage, log_c, status_c, bal_c, pos_c, email_params), daemon=True).start()
             st.success("Bot iniciado correctamente")
         else:
-            st.error("Introduce credenciales API")
+            st.error("Introduce las credenciales API")
 
-
-    if col2.button("Detener Bot") and st.session_state.get('bot_running', False):
+    if col2.button("Detener Bot") and st.session_state.bot_running:
         st.session_state.bot_running = False
         st.success("Bot detenido")
-
 
 elif selected == "Backtest":
     st.header("Backtesting Histórico")
@@ -492,7 +451,6 @@ elif selected == "Backtest":
     start_bt = col1.date_input("Fecha inicio", datetime(2024, 1, 1))
     end_bt = col2.date_input("Fecha fin", datetime.now())
     init_bal_bt = col2.number_input("Balance inicial", value=10000.0)
-
 
     if st.button("Ejecutar Backtest"):
         with st.spinner("Descargando datos y ejecutando backtest..."):
@@ -503,8 +461,8 @@ elif selected == "Backtest":
                 trades_bt, final_bal = backtest_strategy(df_hist, init_bal_bt, symbol_bt)
                 ret = (final_bal - init_bal_bt) / init_bal_bt * 100
                 st.success(f"Backtest completado | Balance final: {final_bal:.2f} USDT (+{ret:.2f}%)")
-                st.dataframe(trades_bt)
-
+                if not trades_bt.empty:
+                    st.dataframe(trades_bt)
 
                 equity = [init_bal_bt]
                 for p in trades_bt['pl']:
@@ -514,5 +472,35 @@ elif selected == "Backtest":
                 fig.update_layout(title="Curva de Capital", template="plotly_dark")
                 st.plotly_chart(fig, use_container_width=True)
 
+elif selected == "Rendimiento":
+    st.header("Análisis de Rendimiento en Vivo")
+    if not st.session_state.trades:
+        st.info("Aún no hay operaciones cerradas")
+    else:
+        df_trades = pd.DataFrame(st.session_state.trades)
+        total = len(df_trades)
+        wins = df_trades[df_trades['pl'] > 0]
+        winrate = len(wins)/total * 100 if total else 0
+        net_pl = df_trades['pl'].sum()
+        col1, col2, col3, col4 = st.columns(4)
+        col1.metric("Operaciones", total)
+        col2.metric("Win Rate", f"{winrate:.1f}%")
+        col3.metric("P/L Neto", f"{net_pl:.2f}")
+        col4.metric("Retorno %", f"{net_pl/st.session_state.initial_balance*100:.2f}%")
 
-elif selected == "Rend
+        equity_live = [st.session_state.initial_balance]
+        for p in df_trades['pl']:
+            equity_live.append(equity_live[-1] + p)
+        fig_live = go.Figure()
+        fig_live.add_trace(go.Scatter(y=equity_live, mode='lines', name='Equity Live'))
+        fig_live.update_layout(title="Curva de Capital en Vivo", template="plotly_dark")
+        st.plotly_chart(fig_live, use_container_width=True)
+        st.dataframe(df_trades)
+
+elif selected == "Logs":
+    st.header("Logs en Tiempo Real")
+    log_container = st.empty()
+    with log_container.container():
+        st.markdown("Los eventos aparecerán aquí cuando el bot esté activo.")
+
+st.caption("Bot desarrollado para Bitunix Perpetual Futures – Usa con precaución y capital de riesgo.")
